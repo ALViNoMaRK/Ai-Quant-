@@ -52,10 +52,25 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      - name: Attach APK to GitHub Release
-        if: github.event_name == 'release'
+      - name: Create or Update GitHub Release with APK
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: latest
+          name: "Latest Android Build (APK)"
+          body: |
+            ## Automated Android APK Release
+            
+            This release contains the latest compiled Android APK for the Stock Intelligence Platform.
+            
+            ### 📥 Direct Download:
+            - Download the attached `app-debug.apk` asset below directly to your Android device.
+            
+            **Commit**: `${{ github.sha }}`  
+            **Build Date**: `${{ github.event.head_commit.timestamp || 'Latest' }}`
+          draft: false
+          prerelease: false
           files: app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
