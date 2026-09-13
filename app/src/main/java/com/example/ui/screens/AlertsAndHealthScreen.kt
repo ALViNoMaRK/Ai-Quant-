@@ -254,6 +254,84 @@ fun AlertsAndHealthScreen(
                 }
             }
         }
+
+        // GitHub & APK Distribution Hub Card
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = TerminalSurfaceDark),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().testTag("github_apk_hub_card")
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "GITHUB APK DISTRIBUTION",
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = CyanAccent
+                            )
+                        }
+                        Surface(
+                            color = EmeraldGreen.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "CI/CD ACTIVE",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = EmeraldGreen,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Automated GitHub Actions workflow '.github/workflows/build-apk.yml' compiles fresh APK packages automatically upon code push.",
+                        fontSize = 11.sp,
+                        color = TextPrimaryDark,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Surface(
+                        color = TerminalBgDark,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "HOW TO DOWNLOAD FROM GITHUB:",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = GoldAccent
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "1. Open your repository on GitHub\n2. Tap the 'Actions' tab\n3. Select the latest build workflow\n4. Scroll to 'Artifacts' and download 'stock-intel-debug-apk'",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextSecondaryDark,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (showWeightsDialog) {
