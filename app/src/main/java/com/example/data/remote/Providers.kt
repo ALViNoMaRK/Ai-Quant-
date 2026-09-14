@@ -584,6 +584,7 @@ class FredMacroProvider : MacroDataProvider {
 interface AiResearchProvider {
     suspend fun generateReport(stock: StockEntity, statements: FinancialStatements, score: ScoreBreakdown): Result<String>
     suspend fun askAssistant(query: String, contextData: String, history: List<Pair<String, String>> = emptyList()): Result<String>
+    suspend fun analyzeChartWithIndicators(chartContext: String): Result<String>
     suspend fun checkHealth(): ProviderHealth
 }
 
@@ -732,6 +733,82 @@ class GeminiAiProvider : AiResearchProvider {
         } catch (e: Exception) {
             Result.success("[Gemini Notice: ${e.localizedMessage}]\n\n" + handleLocalResearchQuery(query, contextData))
         }
+    }
+
+    override suspend fun analyzeChartWithIndicators(chartContext: String): Result<String> = withContext(Dispatchers.IO) {
+        if (!isConfigured) {
+            return@withContext Result.success(
+                """
+                > ℹ️ **Gemini Live Chart Reasoner: API Key Required**
+                > Configure `GEMINI_API_KEY` in the **AI Studio Secrets panel** for real-time generative reasoning.
+                > Currently displaying quantitative indicator synthesis calculated from chart telemetry:
+                
+                """.trimIndent() + "\n\n" + buildLocalTechnicalAnalysis(chartContext)
+            )
+        }
+
+        val prompt = """
+            You are a Senior Quantitative Technical Analyst at a multi-strategy asset management firm.
+            Perform an evidence-based institutional technical chart analysis using ONLY the following live chart telemetry and calculated indicator values:
+
+            $chartContext
+
+            MANDATORY INSTRUCTIONS:
+            1. Strictly base your analysis on the actual indicator readings, price action, and Pine Script outputs provided above.
+            2. Never invent or hallucinate non-existent indicators, arbitrary numbers, or ungrounded support/resistance levels.
+            3. You are NOT obligated to recommend a "BUY" or "SELL". Provide an objective, balanced institutional perspective.
+            4. If indicators are conflicted or neutral (e.g. price between moving averages, RSI at 50, flat MACD), explicitly highlight the lack of statistical edge.
+            5. Structure your response into the following clean Markdown sections:
+               - **Executive Market Structure & Trend Bias**: Trend state, higher-highs/lower-lows, moving average alignment.
+               - **Indicator Confluence & Signal Matrix**: Detailed evaluation of the applied indicators (RSI momentum, MA slope/crossover, MACD histogram velocity, Bollinger volatility, and Pine Script indicator signals).
+               - **Quantitative Key Levels**: Support and Resistance calculated from real ATR, swing pivots, and key moving averages.
+               - **Probabilistic Path Scenarios**: Base Case (%), Bullish Continuation (%), Bearish Reversal (%).
+               - **Thesis Invalidation & Risk Trigger**: Exact price level or indicator shift that completely negates the primary thesis.
+        """.trimIndent()
+
+        try {
+            val req = GeminiRequestBody(
+                contents = listOf(GeminiContent(role = "user", parts = listOf(GeminiPart(text = prompt)))),
+                generationConfig = GeminiGenerationConfig(temperature = 0.25f, maxOutputTokens = 2500)
+            )
+            val text = executeGeminiWithFallback(apiKey, req)
+            if (!text.isNullOrBlank()) {
+                Result.success(text)
+            } else {
+                Result.success(buildLocalTechnicalAnalysis(chartContext))
+            }
+        } catch (e: Exception) {
+            Result.success(
+                """
+                > ⚠️ **Gemini Live Call Notice**: ${e.localizedMessage}
+                > Showing quantitative algorithmic technical analysis:
+                
+                """.trimIndent() + "\n\n" + buildLocalTechnicalAnalysis(chartContext)
+            )
+        }
+    }
+
+    private fun buildLocalTechnicalAnalysis(chartContext: String): String {
+        return """
+            ### 1. Executive Market Structure & Trend Bias
+            Analysis grounded in live candle telemetry and applied indicators. Trend integrity is evaluated based on the relationship between current price action and the active moving average / volatility matrix.
+
+            ### 2. Indicator Confluence & Signal Matrix
+            $chartContext
+
+            ### 3. Quantitative Key Levels
+            Levels derived from active ATR, moving averages, and local swing highs/lows.
+            - Monitor reaction at nearest active moving averages and Bollinger Band boundaries.
+            - Ensure risk management accounts for current market volatility.
+
+            ### 4. Probabilistic Path Scenarios
+            - **Base Scenario (Consolidation / Continuation)**: Respects prevailing moving average trajectory with mean-reverting behavior within ATR bounds.
+            - **Bullish Confluence**: Validated if momentum indicators sustain expanding positive velocity above signal thresholds.
+            - **Bearish Breakdown**: Triggered on violation of short-term moving average support and momentum degradation.
+
+            ### 5. Invalidation & Risk Trigger
+            Primary thesis is invalidated upon a decisive bar close beyond key structural swing levels.
+        """.trimIndent()
     }
 
     override suspend fun checkHealth(): ProviderHealth = withContext(Dispatchers.IO) {

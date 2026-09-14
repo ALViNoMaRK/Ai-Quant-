@@ -5,7 +5,7 @@ import androidx.room.PrimaryKey
 
 data class CandleData(
     val timestamp: Long,
-    val dateStr: String,
+    val dateStr: String = "",
     val open: Double,
     val high: Double,
     val low: Double,

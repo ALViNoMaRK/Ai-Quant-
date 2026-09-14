@@ -69,6 +69,7 @@ fun InteractiveStockChart(
     onAddDrawing: (DrawingToolType, Double) -> Unit,
     onClearDrawings: () -> Unit,
     onToggleEventMarkers: () -> Unit,
+    onTriggerAiAnalysis: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isFullscreen by remember { mutableStateOf(false) }
@@ -108,7 +109,8 @@ fun InteractiveStockChart(
                     onClearDrawings = onClearDrawings,
                     onToggleEventMarkers = onToggleEventMarkers,
                     isFullscreen = true,
-                    onToggleFullscreen = { isFullscreen = false }
+                    onToggleFullscreen = { isFullscreen = false },
+                    onTriggerAiAnalysis = onTriggerAiAnalysis
                 )
             }
         }
@@ -137,6 +139,7 @@ fun InteractiveStockChart(
             onToggleEventMarkers = onToggleEventMarkers,
             isFullscreen = false,
             onToggleFullscreen = { isFullscreen = true },
+            onTriggerAiAnalysis = onTriggerAiAnalysis,
             modifier = modifier
         )
     }
@@ -167,6 +170,7 @@ private fun ChartWorkspaceContent(
     onToggleEventMarkers: () -> Unit,
     isFullscreen: Boolean,
     onToggleFullscreen: () -> Unit,
+    onTriggerAiAnalysis: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedEvent by remember { mutableStateOf<ChartEventMarker?>(null) }
@@ -210,8 +214,11 @@ private fun ChartWorkspaceContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left controls: Indicators, Pine Editor, Drawings, Events
+            // Left controls: Indicators, Pine Editor, AI Reason, Drawings, Events
             Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -241,6 +248,20 @@ private fun ChartWorkspaceContent(
                         color = if (activePineResult != null) TerminalGreen else TextSecondaryDark,
                         fontFamily = FontFamily.Monospace
                     )
+                }
+
+                // AI Chart Reasoner Button
+                if (onTriggerAiAnalysis != null) {
+                    FilledTonalButton(
+                        onClick = onTriggerAiAnalysis,
+                        modifier = Modifier.height(32.dp).testTag("ai_chart_analysis_button"),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = CyanAccent.copy(alpha = 0.2f))
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp), tint = CyanAccent)
+                        Spacer(Modifier.width(4.dp))
+                        Text("AI REASON", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyanAccent)
+                    }
                 }
 
                 // Event markers toggle

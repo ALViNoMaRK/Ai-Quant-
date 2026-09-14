@@ -135,6 +135,12 @@ class StockIntelViewModel(application: Application) : AndroidViewModel(applicati
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    private val _isResolvingStock = MutableStateFlow(false)
+    val isResolvingStock: StateFlow<Boolean> = _isResolvingStock.asStateFlow()
+
+    private val _resolveStockError = MutableStateFlow<String?>(null)
+    val resolveStockError: StateFlow<String?> = _resolveStockError.asStateFlow()
+
     init {
         viewModelScope.launch {
             repository.initializeUniverseIfEmpty()
@@ -148,6 +154,24 @@ class StockIntelViewModel(application: Application) : AndroidViewModel(applicati
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
+        _resolveStockError.value = null
+    }
+
+    fun resolveStock(query: String, onResolved: ((String) -> Unit)? = null) {
+        val sym = query.trim().uppercase()
+        if (sym.isBlank()) return
+        viewModelScope.launch {
+            _isResolvingStock.value = true
+            _resolveStockError.value = null
+            val result = repository.resolveAndInsertStock(sym)
+            _isResolvingStock.value = false
+            result.onSuccess { stock ->
+                selectStock(stock.symbol)
+                onResolved?.invoke(stock.symbol)
+            }.onFailure { err ->
+                _resolveStockError.value = err.message ?: "Failed to resolve '$sym' from connected financial APIs."
+            }
+        }
     }
 
     fun selectStock(symbol: String) {
@@ -297,13 +321,25 @@ class StockIntelViewModel(application: Application) : AndroidViewModel(applicati
 
     private var currentPineCode: String? = null
 
+    private val _isAnalyzingChart = MutableStateFlow(false)
+    val isAnalyzingChart: StateFlow<Boolean> = _isAnalyzingChart.asStateFlow()
+
+    private val _chartAiAnalysis = MutableStateFlow<String?>(null)
+    val chartAiAnalysis: StateFlow<String?> = _chartAiAnalysis.asStateFlow()
+
+    fun clearChartAiAnalysis() {
+        _chartAiAnalysis.value = null
+    }
+
     fun compileAndApplyPineScript(code: String): com.example.engine.pine.PineCompilationResult {
         currentPineCode = code
         val comp = pineParser.parse(code)
         if (comp.success) {
-            val candles = _chartPayload.value?.candles ?: emptyList()
-            val exec = pineSandbox.execute(comp, candles)
-            _activePineResult.value = exec
+            viewModelScope.launch(Dispatchers.Default) {
+                val candles = _chartPayload.value?.candles ?: emptyList()
+                val exec = pineSandbox.execute(comp, candles)
+                _activePineResult.value = exec
+            }
         }
         return comp
     }
@@ -317,9 +353,132 @@ class StockIntelViewModel(application: Application) : AndroidViewModel(applicati
         val code = currentPineCode ?: return
         val comp = pineParser.parse(code)
         if (comp.success) {
-            val candles = _chartPayload.value?.candles ?: emptyList()
-            _activePineResult.value = pineSandbox.execute(comp, candles)
+            viewModelScope.launch(Dispatchers.Default) {
+                val candles = _chartPayload.value?.candles ?: emptyList()
+                _activePineResult.value = pineSandbox.execute(comp, candles)
+            }
         }
+    }
+
+    fun analyzeActiveChartWithAi() {
+        val sym = _selectedStockSymbol.value ?: "NVDA"
+        val payload = _chartPayload.value
+        val candles = payload?.candles ?: emptyList()
+        if (candles.isEmpty()) {
+            _chartAiAnalysis.value = "Unable to perform chart analysis: No price candle telemetry available for $sym."
+            return
+        }
+
+        viewModelScope.launch {
+            _isAnalyzingChart.value = true
+            val telemetryContext = buildChartTelemetryContext(sym, candles)
+            val res = repository.analyzeChartWithIndicators(telemetryContext)
+            _chartAiAnalysis.value = res.getOrElse { "Chart analysis error: ${it.localizedMessage}" }
+            _isAnalyzingChart.value = false
+        }
+    }
+
+    private fun buildChartTelemetryContext(sym: String, candles: List<CandleData>): String {
+        val lastIdx = candles.size - 1
+        if (lastIdx < 0) return "No candle data available."
+        val currentCandle = candles[lastIdx]
+        val prevCandle = if (lastIdx >= 1) candles[lastIdx - 1] else currentCandle
+        val prev2Candle = if (lastIdx >= 2) candles[lastIdx - 2] else prevCandle
+
+        val sb = StringBuilder()
+        sb.appendLine("TICKER: $sym")
+        sb.appendLine("TIMEFRAME: ${_chartTimeframe.value.label} | PERIOD: ${_chartPeriod.value.label}")
+        val pctChange = if (currentCandle.open > 0) ((currentCandle.close - currentCandle.open) / currentCandle.open) * 100 else 0.0
+        sb.appendLine("CURRENT PRICE: $${String.format(java.util.Locale.US, "%.2f", currentCandle.close)} (Bar Change: ${String.format(java.util.Locale.US, "%.2f", pctChange)}%)")
+        sb.appendLine()
+        sb.appendLine("RECENT CANDLE TELEMETRY:")
+        sb.appendLine("- Bar[0] (Current Bar): Open=${String.format(java.util.Locale.US, "%.2f", currentCandle.open)}, High=${String.format(java.util.Locale.US, "%.2f", currentCandle.high)}, Low=${String.format(java.util.Locale.US, "%.2f", currentCandle.low)}, Close=${String.format(java.util.Locale.US, "%.2f", currentCandle.close)}, Vol=${String.format(java.util.Locale.US, "%.2fM", currentCandle.volume / 1_000_000.0)}")
+        if (lastIdx >= 1) {
+            sb.appendLine("- Bar[1] (Prior Bar): Open=${String.format(java.util.Locale.US, "%.2f", prevCandle.open)}, High=${String.format(java.util.Locale.US, "%.2f", prevCandle.high)}, Low=${String.format(java.util.Locale.US, "%.2f", prevCandle.low)}, Close=${String.format(java.util.Locale.US, "%.2f", prevCandle.close)}, Vol=${String.format(java.util.Locale.US, "%.2fM", prevCandle.volume / 1_000_000.0)}")
+        }
+        if (lastIdx >= 2) {
+            sb.appendLine("- Bar[2] (2 Bars Ago): Open=${String.format(java.util.Locale.US, "%.2f", prev2Candle.open)}, High=${String.format(java.util.Locale.US, "%.2f", prev2Candle.high)}, Low=${String.format(java.util.Locale.US, "%.2f", prev2Candle.low)}, Close=${String.format(java.util.Locale.US, "%.2f", prev2Candle.close)}, Vol=${String.format(java.util.Locale.US, "%.2fM", prev2Candle.volume / 1_000_000.0)}")
+        }
+
+        // Active Standard Technical Indicators
+        val activeInds = _activeIndicators.value
+        sb.appendLine()
+        sb.appendLine("ACTIVE TECHNICAL INDICATORS (Computed on live bars):")
+        if (activeInds.isEmpty()) {
+            sb.appendLine("- No standard technical indicators currently active on chart.")
+        } else {
+            for (ind in activeInds) {
+                if (!ind.isVisible) continue
+                val res = com.example.engine.technical.TechnicalIndicatorEngine.calculate(ind, candles)
+                val p0 = res.primaryValues.getOrNull(lastIdx)?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "N/A"
+                val p1 = res.primaryValues.getOrNull(lastIdx - 1)?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "N/A"
+                val p2 = res.primaryValues.getOrNull(lastIdx - 2)?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "N/A"
+
+                val sec0 = res.secondaryValues?.getOrNull(lastIdx)?.let { String.format(java.util.Locale.US, "%.2f", it) }
+                val tert0 = res.tertiaryValues?.getOrNull(lastIdx)?.let { String.format(java.util.Locale.US, "%.2f", it) }
+
+                when (ind.type) {
+                    com.example.engine.technical.BuiltInIndicatorType.BOLLINGER_BANDS -> {
+                        sb.appendLine("- ${ind.title}: Upper=$p0, Middle=$sec0, Lower=$tert0 | Prior Upper=$p1")
+                    }
+                    com.example.engine.technical.BuiltInIndicatorType.MACD -> {
+                        sb.appendLine("- ${ind.title}: MACD Line=$p0, Signal Line=$sec0, Histogram=$tert0 | Prior MACD=$p1")
+                    }
+                    com.example.engine.technical.BuiltInIndicatorType.STOCHASTIC -> {
+                        sb.appendLine("- ${ind.title}: %K=$p0, %D=$sec0 | Prior %K=$p1")
+                    }
+                    com.example.engine.technical.BuiltInIndicatorType.RSI -> {
+                        sb.appendLine("- ${ind.title}: Current [0]=$p0 | Bar[1]=$p1 | Bar[2]=$p2 (Overbought: 70, Oversold: 30)")
+                    }
+                    else -> {
+                        sb.appendLine("- ${ind.title}: Current [0]=$p0 | Bar[1]=$p1 | Bar[2]=$p2")
+                    }
+                }
+            }
+        }
+
+        // Custom Pine Script Indicator Engine Outputs
+        val pineResult = _activePineResult.value
+        sb.appendLine()
+        sb.appendLine("PINE SCRIPT INDICATOR ENGINE OUTPUT:")
+        if (pineResult != null) {
+            sb.appendLine("- Script Title: '${pineResult.title}' (Overlay: ${pineResult.isOverlay})")
+            for (plot in pineResult.plots) {
+                val v0 = plot.series.getOrNull(lastIdx)?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "N/A"
+                val v1 = plot.series.getOrNull(lastIdx - 1)?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "N/A"
+                val v2 = plot.series.getOrNull(lastIdx - 2)?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "N/A"
+                sb.appendLine("  * Plot '${plot.title}': Current [0]=$v0, Bar[1]=$v1, Bar[2]=$v2")
+            }
+            if (pineResult.shapes.isNotEmpty()) {
+                sb.appendLine("  * Script Signals:")
+                for (s in pineResult.shapes) {
+                    val activeRecent = (maxOf(0, lastIdx - 10)..lastIdx).filter { idx ->
+                        s.condition.getOrNull(idx) == true
+                    }
+                    if (activeRecent.isNotEmpty()) {
+                        for (idx in activeRecent) {
+                            val barsAgo = lastIdx - idx
+                            val price = candles.getOrNull(idx)?.close ?: 0.0
+                            sb.appendLine("    - Signal [-$barsAgo bars]: ${s.title} (${if (s.isBuy) "BUY" else "SELL"}) at $${String.format(java.util.Locale.US, "%.2f", price)}")
+                        }
+                    }
+                }
+            }
+        } else {
+            sb.appendLine("- No custom Pine Script indicator currently applied to chart.")
+        }
+
+        // User Chart Drawings
+        val drawings = _chartDrawings.value.filter { it.symbol == sym }
+        if (drawings.isNotEmpty()) {
+            sb.appendLine()
+            sb.appendLine("USER CHART DRAWINGS & ANNOTATED LEVELS:")
+            for (d in drawings) {
+                sb.appendLine("- ${d.type.label}: Level 1 = $${String.format(java.util.Locale.US, "%.2f", d.price1)}${if (d.price2 != d.price1) ", Level 2 = $${String.format(java.util.Locale.US, "%.2f", d.price2)}" else ""} (${d.label.ifBlank { "User Annotation" }})")
+            }
+        }
+
+        return sb.toString()
     }
 
     fun saveCustomIndicator(name: String, code: String, isOverlay: Boolean, desc: String) {

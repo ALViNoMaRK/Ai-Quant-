@@ -90,30 +90,54 @@ fun AlertsAndHealthScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 5.dp),
+                                .padding(vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(7.dp)
+                                        .size(8.dp)
                                         .clip(CircleShape)
                                         .background(statusColor)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(health.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-                                    Text(health.details, fontSize = 10.sp, color = TextMutedDark)
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                    Text(
+                                        health.name,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimaryDark,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        health.details,
+                                        fontSize = 10.sp,
+                                        color = TextMutedDark,
+                                        maxLines = 2,
+                                        lineHeight = 13.sp,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
                                 }
                             }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.End
+                            ) {
                                 Text(
                                     text = "${health.latencyMs}ms",
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = TextSecondaryDark
+                                    color = TextSecondaryDark,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Surface(
@@ -126,7 +150,9 @@ fun AlertsAndHealthScreen(
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace,
                                         color = statusColor,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                     )
                                 }
                             }

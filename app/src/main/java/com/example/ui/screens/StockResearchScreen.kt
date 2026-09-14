@@ -82,6 +82,8 @@ fun StockResearchScreen(
     val showEventMarkers by viewModel.showEventMarkers.collectAsState()
     val chartDrawings by viewModel.chartDrawings.collectAsState()
     val customIndicators by viewModel.customIndicators.collectAsState()
+    val isAnalyzingChart by viewModel.isAnalyzingChart.collectAsState()
+    val chartAiAnalysis by viewModel.chartAiAnalysis.collectAsState()
 
     var showPineEditor by remember { mutableStateOf(false) }
     var showAddIndicatorDialog by remember { mutableStateOf(false) }
@@ -242,7 +244,11 @@ fun StockResearchScreen(
                     onAddDrawing = { type, p -> viewModel.addChartDrawing(type, p) },
                     onClearDrawings = { viewModel.clearDrawings() },
                     onToggleEventMarkers = { viewModel.toggleEventMarkers() },
-                    stock = stock
+                    stock = stock,
+                    isAnalyzingChart = isAnalyzingChart,
+                    chartAiAnalysis = chartAiAnalysis,
+                    onTriggerAiAnalysis = { viewModel.analyzeActiveChartWithAi() },
+                    onClearChartAiAnalysis = { viewModel.clearChartAiAnalysis() }
                 )
                 1 -> OverviewTabContent(stock, statements, breakdown)
                 2 -> FundamentalsTabContent(statements)
@@ -330,8 +336,15 @@ fun ChartTabContent(
     onAddDrawing: (DrawingToolType, Double) -> Unit,
     onClearDrawings: () -> Unit,
     onToggleEventMarkers: () -> Unit,
-    stock: StockEntity
+    stock: StockEntity,
+    isAnalyzingChart: Boolean = false,
+    chartAiAnalysis: String? = null,
+    onTriggerAiAnalysis: () -> Unit = {},
+    onClearChartAiAnalysis: () -> Unit = {}
 ) {
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    var showTelemetryDrawer by remember { mutableStateOf(false) }
+
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 60.dp)
@@ -359,8 +372,216 @@ fun ChartTabContent(
                 onOpenPineEditor = onOpenPineEditor,
                 onAddDrawing = onAddDrawing,
                 onClearDrawings = onClearDrawings,
-                onToggleEventMarkers = onToggleEventMarkers
+                onToggleEventMarkers = onToggleEventMarkers,
+                onTriggerAiAnalysis = onTriggerAiAnalysis
             )
+        }
+
+        item {
+            // AI-Powered Indicator-Aware Reasoner Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = TerminalSurfaceDark),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .testTag("ai_indicator_reasoner_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = CyanAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                "AI INDICATOR CONFLUENCE ENGINE",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyanAccent,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1
+                            )
+                        }
+
+                        if (isAnalyzingChart) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = CyanAccent
+                            )
+                        } else if (chartAiAnalysis != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(
+                                    onClick = {
+                                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(chartAiAnalysis))
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ContentCopy,
+                                        contentDescription = "Copy Analysis",
+                                        tint = TextSecondaryDark,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onClearChartAiAnalysis,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Clear Analysis",
+                                        tint = TextSecondaryDark,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Indicator Telemetry summary badge row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = CardBgDark,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                "Live Bars: ${payload?.candles?.size ?: 0}",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextSecondaryDark,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        Surface(
+                            color = CardBgDark,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                "Active Indicators: ${activeIndicators.size}",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (activeIndicators.isNotEmpty()) TerminalAccent else TextSecondaryDark,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        if (activePineResult != null) {
+                            Surface(
+                                color = TerminalGreen.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    "Pine: ${activePineResult.title} (${activePineResult.plots.size} plots)",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TerminalGreen,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        if (drawings.isNotEmpty()) {
+                            Surface(
+                                color = GoldAccent.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    "Drawings: ${drawings.size}",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = GoldAccent,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (isAnalyzingChart) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = CyanAccent,
+                            trackColor = TerminalBorderDark
+                        )
+                        Text(
+                            "Synthesizing price action, ${activeIndicators.size} indicators, and Pine Script outputs...",
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    } else if (chartAiAnalysis != null) {
+                        Surface(
+                            color = CardBgDark,
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = chartAiAnalysis,
+                                    fontSize = 12.sp,
+                                    color = TextPrimaryDark,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+
+                        // Re-run button
+                        OutlinedButton(
+                            onClick = onTriggerAiAnalysis,
+                            modifier = Modifier.fillMaxWidth(),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.6f))
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("RE-EVALUATE CONFLUENCE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyanAccent)
+                        }
+                    } else {
+                        Text(
+                            "Evaluate market regime, confluence, and risk scenarios using the exact outputs of your applied technical indicators and Pine scripts without inventing unattached indicators.",
+                            fontSize = 11.sp,
+                            color = TextSecondaryDark,
+                            lineHeight = 16.sp
+                        )
+
+                        Button(
+                            onClick = onTriggerAiAnalysis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("run_indicator_ai_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyanAccent)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("REASON WITH GEMINI (INDICATOR-AWARE)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        }
+                    }
+                }
+            }
         }
 
         item {

@@ -20,6 +20,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import com.example.data.model.InvestmentClassification
 import com.example.data.model.StockEntity
 import com.example.ui.components.StockCard
@@ -52,9 +55,12 @@ fun StockScannerScreen(
 ) {
     val stocks by viewModel.allStocks.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val isResolvingStock by viewModel.isResolvingStock.collectAsState()
+    val resolveStockError by viewModel.resolveStockError.collectAsState()
     var selectedFilter by remember { mutableStateOf(ScannerFilter.ALL) }
     var selectedSort by remember { mutableStateOf(ScannerSort.MASTER_SCORE) }
 
+    val trimmedQuery = searchQuery.trim().uppercase()
     val filteredStocks = remember(stocks, searchQuery, selectedFilter, selectedSort) {
         stocks.filter { stock ->
             val matchesQuery = stock.symbol.contains(searchQuery.trim(), ignoreCase = true) ||
@@ -94,7 +100,7 @@ fun StockScannerScreen(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { viewModel.onSearchQueryChanged(it) },
-            placeholder = { Text("Search by Ticker, Company, Sector...", fontSize = 12.sp, color = TextMutedDark) },
+            placeholder = { Text("Search or enter ticker (e.g. HPE, NVDA)...", fontSize = 12.sp, color = TextMutedDark) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = CyanAccent) },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
@@ -103,6 +109,14 @@ fun StockScannerScreen(
                     }
                 }
             },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    if (searchQuery.isNotBlank()) {
+                        viewModel.resolveStock(searchQuery) { onNavigateToResearch(it) }
+                    }
+                }
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("scanner_search_input"),
@@ -117,6 +131,40 @@ fun StockScannerScreen(
             shape = RoundedCornerShape(10.dp),
             singleLine = true
         )
+
+        // Resolving State or Error Notification
+        if (isResolvingStock) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+                color = CyanAccent,
+                trackColor = TerminalBorderDark
+            )
+            Text(
+                "Resolving live market feeds and financial metrics for '$trimmedQuery'...",
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = CyanAccent,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        if (resolveStockError != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                color = CrimsonRed.copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CrimsonRed.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = resolveStockError ?: "",
+                    fontSize = 11.sp,
+                    color = CrimsonRed,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(10.dp))
 
@@ -196,6 +244,60 @@ fun StockScannerScreen(
             contentPadding = PaddingValues(bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // If user searched for a symbol not in current filter/cache
+            if (trimmedQuery.isNotBlank() && filteredStocks.none { it.symbol == trimmedQuery }) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = TerminalSurfaceDark),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyanAccent.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "LOOKUP '$trimmedQuery' VIA LIVE FINANCIAL APIS",
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        color = CyanAccent
+                                    )
+                                    Text(
+                                        text = "Pull real-time quote, financial statements & candles",
+                                        fontSize = 10.sp,
+                                        color = TextSecondaryDark
+                                    )
+                                }
+                                Button(
+                                    onClick = { viewModel.resolveStock(trimmedQuery) { onNavigateToResearch(it) } },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyanAccent),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(34.dp).testTag("resolve_symbol_button")
+                                ) {
+                                    Text("RESOLVE", color = TerminalBgDark, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (filteredStocks.isEmpty() && trimmedQuery.isBlank()) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No stocks match current filter criteria.", color = TextMutedDark, fontSize = 12.sp)
+                    }
+                }
+            }
+
             items(filteredStocks) { stock ->
                 StockCard(
                     stock = stock,

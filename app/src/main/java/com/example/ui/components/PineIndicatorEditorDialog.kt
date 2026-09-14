@@ -62,17 +62,22 @@ fun PineIndicatorEditorDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(SurfaceDark)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Icon(Icons.Default.Code, contentDescription = null, tint = TerminalAccent)
                         Text(
-                            "PINE COMPATIBLE INDICATOR ENGINE",
+                            "PINE SCRIPT ENGINE",
                             fontWeight = FontWeight.Bold,
                             color = TextPrimaryDark,
-                            fontSize = 14.sp
+                            fontSize = 13.sp,
+                            maxLines = 1
                         )
                         Box(
                             modifier = Modifier
@@ -84,7 +89,7 @@ fun PineIndicatorEditorDialog(
                         }
                     }
 
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = TextPrimaryDark)
                     }
                 }
@@ -168,6 +173,20 @@ fun PineIndicatorEditorDialog(
                                     showTemplatesMenu = false
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text("MACD Oscillator (12, 26, 9)", color = TextPrimaryDark, fontSize = 12.sp) },
+                                onClick = {
+                                    codeText = PrebuiltPineScripts.MACD_HISTOGRAM
+                                    showTemplatesMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Volatility Trailing Band (ATR)", color = TextPrimaryDark, fontSize = 12.sp) },
+                                onClick = {
+                                    codeText = PrebuiltPineScripts.SUPERTREND_CHANDELIER
+                                    showTemplatesMenu = false
+                                }
+                            )
                         }
                     }
 
@@ -181,6 +200,56 @@ fun PineIndicatorEditorDialog(
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp), tint = TextSecondaryDark)
                         Spacer(Modifier.width(4.dp))
                         Text("SAVE", fontSize = 11.sp, color = TextSecondaryDark)
+                    }
+                }
+
+                // Mobile Pine Syntax Shortcut Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F172A))
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val snippets = listOf(
+                        "[1]" to "[1]",
+                        "[2]" to "[2]",
+                        "close" to "close",
+                        "high" to "high",
+                        "low" to "low",
+                        "ta.ema()" to "ta.ema(close, 20)",
+                        "ta.sma()" to "ta.sma(close, 50)",
+                        "ta.rsi()" to "ta.rsi(close, 14)",
+                        "ta.atr()" to "ta.atr(14)",
+                        "ta.crossover()" to "ta.crossover(",
+                        "plot()" to "plot(",
+                        "plotshape()" to "plotshape(",
+                        "and" to " and ",
+                        "or" to " or ",
+                        "? :" to " ? 1 : 0"
+                    )
+                    snippets.forEach { (label, snippet) ->
+                        Surface(
+                            color = Color(0xFF1E293B),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.clickable {
+                                codeText = if (codeText.endsWith("\n") || codeText.isEmpty()) {
+                                    codeText + snippet
+                                } else {
+                                    "$codeText $snippet"
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TerminalAccent,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
                     }
                 }
 
@@ -223,19 +292,24 @@ fun PineIndicatorEditorDialog(
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text(
-                                res.errorMessage ?: "Unknown syntax or runtime error in indicator code.",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                lineHeight = 16.sp
-                            )
+                            Box(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                                Text(
+                                    res.errorMessage ?: "Unknown syntax or runtime error in indicator code.",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = 16.sp
+                                )
+                            }
                         }
                     }
                 }
 
                 // Main Code Editor Area with Line Numbers Gutter
                 val lineCount = maxOf(1, codeText.lines().size)
+                val editorVerticalScroll = rememberScrollState()
+                val editorHorizontalScroll = rememberScrollState()
+
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -245,17 +319,17 @@ fun PineIndicatorEditorDialog(
                     // Line numbers gutter
                     Column(
                         modifier = Modifier
-                            .width(42.dp)
+                            .width(38.dp)
                             .fillMaxHeight()
                             .background(Color(0xFF080D1A))
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(editorVerticalScroll)
                             .padding(vertical = 12.dp, horizontal = 4.dp),
                         horizontalAlignment = Alignment.End
                     ) {
                         for (i in 1..lineCount) {
                             Text(
                                 text = "$i",
-                                color = if (compileResult?.errorLine == i) TerminalRed else TextSecondaryDark.copy(alpha = 0.6f),
+                                color = if (compileResult?.errorLine == i) TerminalRed else TextSecondaryDark.copy(alpha = 0.5f),
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = if (compileResult?.errorLine == i) FontWeight.Bold else FontWeight.Normal,
@@ -264,26 +338,37 @@ fun PineIndicatorEditorDialog(
                         }
                     }
 
-                    // Code Editor Text Field
-                    OutlinedTextField(
-                        value = codeText,
-                        onValueChange = { codeText = it },
+                    // Vertical subtle divider
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .fillMaxHeight()
+                            .background(Color(0xFF1E293B))
+                    )
+
+                    // Code Editor Text Field with horizontal & vertical scroll
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .testTag("pine_code_editor"),
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            color = TextPrimaryDark,
-                            lineHeight = 20.sp
-                        ),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedContainerColor = Color(0xFF0B1120),
-                            unfocusedContainerColor = Color(0xFF0B1120)
+                            .verticalScroll(editorVerticalScroll)
+                            .horizontalScroll(editorHorizontalScroll)
+                            .padding(horizontal = 8.dp, vertical = 12.dp)
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = codeText,
+                            onValueChange = { codeText = it },
+                            modifier = Modifier
+                                .widthIn(min = 1400.dp)
+                                .testTag("pine_code_editor"),
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = TextPrimaryDark,
+                                lineHeight = 20.sp
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(TerminalAccent)
                         )
-                    )
+                    }
                 }
             }
         }
