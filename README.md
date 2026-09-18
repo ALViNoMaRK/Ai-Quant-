@@ -8,14 +8,15 @@ Designed for institutional investors, quantitative analysts, and serious compoun
 
 ## 📥 Direct One-Tap APK Download Links
 
-### 🚀 [Download Latest APK (v1.0.0)](https://github.com/ALViNoMaRK/Ai-Quant-/releases/download/v1.0.0/stock-intel-latest.apk) (Instant Direct Download)
+### 🚀 [Download Latest APK v1.2.0 (Stock Intelligence & Event Engine)](https://github.com/ALViNoMaRK/Ai-Quant-/releases/download/v1.2.0/stock-intel-latest.apk) (Instant Direct Download)
 
-Tap the link above to immediately start the download of **`stock-intel-latest.apk`** (24.6 MB) onto your phone without loading GitHub's file previewer.
+Tap the link above to immediately start the download of **`stock-intel-latest.apk`** (v1.2.0, 24.3 MB) onto your phone without loading GitHub's file previewer.
 
 ### Alternative Download Options:
-- **[GitHub Releases Page](https://github.com/ALViNoMaRK/Ai-Quant-/releases/tag/v1.0.0)**: View Release v1.0.0 and tap `stock-intel-latest.apk` under **Assets**.
-- **In File Tree**: Tap the blue text **"View raw"** on `stock-intel-latest.apk` to download.
-- **AI Studio Code Explorer**: Right-click or tap the options menu (`⋮`) next to `stock-intel-latest.apk` in the root workspace and select **Download**.
+- **[Latest GitHub Release Page (v1.2.0)](https://github.com/ALViNoMaRK/Ai-Quant-/releases/tag/v1.2.0)**: View Release v1.2.0 and tap `stock-intel-latest.apk` or `stock-intel-v1.2.0.apk` under **Assets**.
+- **[Direct Mirror Download (v1.2.0 Tag)](https://github.com/ALViNoMaRK/Ai-Quant-/releases/download/v1.2.0/stock-intel-v1.2.0.apk)**
+- **Web App / Preview Endpoint**: Tap **"Download Latest APK v1.2.0"** at the top or sidebar in the web preview terminal.
+- **AI Studio Code Explorer**: Right-click or tap the options menu (`⋮`) next to `stock-intel-latest.apk` or `app-debug.apk` in the root workspace and select **Download**.
 
 ---
 

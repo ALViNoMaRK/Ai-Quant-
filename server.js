@@ -129,7 +129,7 @@ const server = http.createServer((req, res) => {
   const pathname = parsedUrl.pathname;
 
   // APK Download endpoint
-  if (pathname === '/app-debug.apk' || pathname === '/download-apk') {
+  if (pathname === '/app-debug.apk' || pathname === '/download-apk' || pathname === '/stock-intel-latest.apk' || pathname === '/stock-intel-v1.2.0.apk') {
     const apk = getApkPath();
     if (!apk) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -139,8 +139,10 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, {
       'Content-Type': 'application/vnd.android.package-archive',
       'Content-Length': stat.size,
-      'Content-Disposition': 'attachment; filename="StockIntel-debug.apk"',
-      'Cache-Control': 'no-cache'
+      'Content-Disposition': 'attachment; filename="stock-intel-v1.2.0-latest.apk"',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     });
     return fs.createReadStream(apk).pipe(res);
   }
@@ -571,8 +573,8 @@ const server = http.createServer((req, res) => {
       <span class="brand-title">Institutional Stock Intelligence Platform</span>
     </div>
     <div class="header-actions">
-      <a href="/app-debug.apk" class="btn-download" download>
-        <span>📥 Download APK (${apkSizeMb} MB)</span>
+      <a href="/stock-intel-latest.apk" class="btn-download" download>
+        <span>📥 Download Latest APK v1.2.0 (${apkSizeMb} MB)</span>
       </a>
       <a href="#git" onclick="showGitInstructions()" class="btn-gh">
         <span>🐙 Push to GitHub</span>
@@ -716,12 +718,15 @@ const server = http.createServer((req, res) => {
           Compiled Jetpack Compose & SQLite Room client with offline cache, custom canvas charts, and Gemini AI stock assistant.
         </p>
         <ul class="install-steps">
-          <li><span>1.</span> Tap <strong>Download APK</strong> above or button below.</li>
-          <li><span>2.</span> Open Downloads on phone & tap <strong>StockIntel-debug.apk</strong>.</li>
+          <li><span>1.</span> Tap <strong>Download Latest APK</strong> above or button below.</li>
+          <li><span>2.</span> Open Downloads on phone & tap <strong>stock-intel-v1.2.0-latest.apk</strong>.</li>
           <li><span>3.</span> Allow install from source & launch!</li>
         </ul>
-        <a href="/app-debug.apk" download style="display:block; text-align:center; padding:10px; background:#00e5a3; color:#07090e; font-weight:700; border-radius:6px; text-decoration:none; margin-bottom:8px;">
-          ⬇️ Direct Download APK (${apkSizeMb} MB)
+        <a href="/stock-intel-latest.apk" download style="display:block; text-align:center; padding:10px; background:#00e5a3; color:#07090e; font-weight:700; border-radius:6px; text-decoration:none; margin-bottom:8px;">
+          ⬇️ Direct Download Latest APK v1.2.0 (${apkSizeMb} MB)
+        </a>
+        <a href="https://github.com/ALViNoMaRK/Ai-Quant-/releases/download/v1.2.0/stock-intel-latest.apk" target="_blank" style="display:block; text-align:center; padding:8px; background:#162438; border:1px solid #233b5c; color:#cad5e8; font-size:11px; font-weight:600; border-radius:6px; text-decoration:none; margin-bottom:8px;">
+          🐙 Download from GitHub Release (Mirror)
         </a>
         <button onclick="showGitInstructions()" style="width:100%; padding:8px; background:#162438; border:1px solid #233b5c; color:#cad5e8; font-size:11px; font-weight:600; border-radius:6px; cursor:pointer;">
           🐙 Push to GitHub Instructions
