@@ -1,0 +1,7 @@
+{
+  "name": "Stock Intel",
+  "description": "Institutional Stock Intelligence & Investment Research Platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

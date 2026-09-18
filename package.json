@@ -1,0 +1,10 @@
+{
+  "name": "stock-intel",
+  "version": "1.0.0",
+  "description": "Institutional Stock Intelligence Platform Web Preview & APK Distribution Service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  }
+}
