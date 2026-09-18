@@ -1,0 +1,50 @@
+{
+  "name": "alpha-vantage-mcp-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler deploy --dry-run",
+    "wrangler": "wrangler"
+  },
+  "dependencies": {
+    "@babel/standalone": "^7.28.3",
+    "@monaco-editor/react": "^4.7.0",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@tailwindcss/typography": "^0.5.16",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "highlight.js": "^11.11.1",
+    "hono": "^4.0.0",
+    "lucide-react": "^0.514.0",
+    "marked": "^15.0.12",
+    "next": "15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.1.2",
+    "rehype-highlight": "^7.0.2",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
+    "swr": "^2.3.6",
+    "tailwind-merge": "^3.3.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/babel__standalone": "^7.1.9",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.3",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.3.4",
+    "typescript": "^5",
+    "wrangler": "^3.0.0"
+  }
+}

@@ -1,0 +1,276 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Minimal AWS Lambda function with Streamable HTTP MCP Server
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    Description: Environment name
+  DomainName:
+    Type: String
+    Description: Custom domain name for the API
+  CertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for the custom domain (must be in us-east-1)
+  StaticFilesBucket:
+    Type: String
+    Default: alphavantage-mcp-web
+    Description: S3 bucket name for static files (web assets)
+  CdnBucketName:
+    Type: String
+    Default: alphavantage-mcp-responses
+    Description: S3 bucket name for CDN storage
+  CdnDomain:
+    Type: String
+    Description: CDN domain for public access
+  JwtSecretKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: HS256 signing key for OAuth token envelopes (sourced from config/SSM)
+  AvApikeyEncKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Fernet key for field-encrypting the Alpha Vantage apikey claim (sourced from config/SSM)
+  S3IngestSecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Shared secret the mcp-s3-ingest endpoint requires on every request (per-account, sourced from config/SSM); empty disables the endpoint
+  AnalyticsLogsBucket:
+    Type: String
+    Default: ''
+    Description: S3 bucket for the mcp-s3-ingest 'analytics' target (per-account; no default so a staging value can never leak into prod)
+  S3IngestRoleName:
+    Type: String
+    Default: mcp-s3-ingest-role
+    Description: IAM role name for mcp-s3-ingest (pre-created out of band; default is the dedicated least-privilege role, override to reuse another role e.g. LogsProcessorRole-mcp)
+
+Conditions:
+  # Only materialise S3IngestFunction when a secret is configured. Protects a
+  # main/prod release from rolling back the whole stack if the ingest role or
+  # CONFIG keys are not ready yet (todo 2842, D29). Staging keeps a non-empty
+  # secret so the function stays present there.
+  HasS3IngestSecret: !Not [!Equals [!Ref S3IngestSecret, '']]
+
+Resources:
+  # S3 bucket for static files. No longer fronted by CloudFront (the Lambda serves
+  # the site via APIOrigin now, todo 2600); kept defined pending data decommission.
+  StaticFilesBucketResource:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref StaticFilesBucket
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+
+  # CloudFront distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref DomainName
+        # Default behavior: the server now serves its own landing page (/) as
+        # bundled static HTML, so route the root and every otherwise-unmatched
+        # path to the Lambda via APIOrigin instead of the S3 website (todo 2600).
+        # The landing page is a public GET, so caching is fine (CachingOptimized
+        # keys on path); AllViewerExceptHostHeader forwards the request to the
+        # Lambda while letting API Gateway keep its own Host header, same
+        # origin-request policy the /mcp* behavior uses below.
+        DefaultCacheBehavior:
+          TargetOriginId: APIOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # Managed-CachingOptimized
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+        CacheBehaviors:
+          # API routes
+          - PathPattern: /mcp*
+            TargetOriginId: APIOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+          - PathPattern: /openai*
+            TargetOriginId: APIOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+          - PathPattern: /.well-known*
+            TargetOriginId: APIOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+          - PathPattern: /authorize*
+            TargetOriginId: APIOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+          - PathPattern: /token*
+            TargetOriginId: APIOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+          - PathPattern: /register*
+            TargetOriginId: APIOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
+        Origins:
+          # S3Origin (the alphavantage-mcp-web website) was removed: the site is
+          # now served by the Lambda via APIOrigin (todo 2600). The bucket resource
+          # itself is intentionally kept for now (data decommission is a later step).
+          - Id: APIOrigin
+            DomainName: !Sub '${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com'
+            CustomOriginConfig:
+              HTTPPort: 443
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+            OriginPath: /Prod
+        Enabled: true
+        # No DefaultRootObject: a request to "/" must reach the Lambda as path "/"
+        # (which serves the landing page). Setting it to index.html would rewrite
+        # "/" to "/index.html", which the server's exact "/" route does not match.
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+  MCPLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: mcp
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.13
+      Architectures:
+        - x86_64
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/mcp-server-lambda-execution-role'
+      Events:
+        RootApi:
+          Type: Api
+          Properties:
+            Path: /
+            Method: any
+        ProxyApi:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: any
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PYTHONPATH: /var/task/src:/var/runtime
+          MAX_RESPONSE_TOKENS: '32000'
+          DOMAIN_NAME: !Ref DomainName
+          CDN_BUCKET_NAME: !Ref CdnBucketName
+          CDN_DOMAIN: !Ref CdnDomain
+          JWT_SECRET_KEY: !Ref JwtSecretKey
+          AV_APIKEY_ENC_KEY: !Ref AvApikeyEncKey
+
+  # Dedicated bucket-put proxy for Manufact containers, which hold no AWS credentials
+  # of their own (todo 2842, round 6). Self-contained (stdlib + runtime boto3), so it
+  # skips the MCP function's tool-catalog cold start and keeps its own log group
+  # outside the "MCP_ANALYTICS" subscription filter. Runs under a dedicated role
+  # (S3IngestRoleName, default mcp-s3-ingest-role, created out-of-band by
+  # scripts/create-ingest-role.sh) rather than mcp-server-lambda-execution-role, so
+  # its S3 access is scoped to exactly the two allowlisted prefixes instead of that
+  # role's broader AWSLambdaExecute grant. Conditioned on a non-empty secret (D29)
+  # so a prod release without CONFIG/role ready cannot roll back the whole stack.
+  S3IngestFunction:
+    Type: AWS::Serverless::Function
+    Condition: HasS3IngestSecret
+    Properties:
+      FunctionName: mcp-s3-ingest
+      CodeUri: ingest/
+      Handler: app.lambda_handler
+      Runtime: python3.13
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 15
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${S3IngestRoleName}'
+      Events:
+        S3IngestApi:
+          Type: Api
+          Properties:
+            Path: /internal/s3-put
+            Method: post
+      Environment:
+        Variables:
+          S3_INGEST_SECRET: !Ref S3IngestSecret
+          ANALYTICS_LOGS_BUCKET: !Ref AnalyticsLogsBucket
+          CDN_BUCKET_NAME: !Ref CdnBucketName
+          CDN_DOMAIN: !Ref CdnDomain
+
+Outputs:
+  MCPApi:
+    Description: "API Gateway endpoint URL for MCP function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  CustomDomainURL:
+    Description: "Custom domain URL (served via CloudFront)"
+    Value: !Sub "https://${DomainName}/"
+  CloudFrontDomainName:
+    Description: "CloudFront distribution domain name for DNS configuration"
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  StaticFilesBucket:
+    Description: "S3 bucket for static files"
+    Value: !Ref StaticFilesBucketResource
+  MCPLambdaFunction:
+    Description: "MCP Lambda Function ARN"
+    Value: !GetAtt MCPLambdaFunction.Arn

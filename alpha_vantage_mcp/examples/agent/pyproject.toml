@@ -1,0 +1,27 @@
+[project]
+name = "alpha-vantage-agent"
+version = "0.1.0"
+description = "OpenAI agents example using Alpha Vantage MCP server"
+requires-python = ">=3.13"
+license = {text = "MIT"}
+dependencies = [
+    "openai-agents",
+    "pydantic",
+    "rich",
+    "python-dotenv",
+    "openai",
+    "loguru>=0.7.3",
+    "click>=8.2.1",
+    "prompt-toolkit>=3.0.52",
+    "json5>=0.12.1",
+]
+
+[project.scripts]
+alphavantage-openai-agent = "main:main_cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

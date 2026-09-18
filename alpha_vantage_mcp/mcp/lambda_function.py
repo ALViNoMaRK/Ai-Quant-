@@ -1,0 +1,363 @@
+import json
+from functools import lru_cache
+from importlib.resources import files
+from av_mcp.tool_errors import ToolCallMCPLambdaHandler
+from loguru import logger
+from av_api.context import set_api_key
+from av_mcp.decorators import setup_custom_tool_decorator
+import av_mcp.common  # noqa: F401 — registers response processor for large responses
+from av_api.registry import build_data_structured_content, get_tool_list, get_tool_schema, get_tool_schemas
+from av_mcp.tools.registry import register_all_tools, register_meta_tools
+from av_mcp.tools.meta_tools import (
+    META_TOOL_OUTPUT_SCHEMA,
+    build_structured_content as build_meta_tool_structured_content,
+)
+from av_mcp.utils import (
+    resolve_credential,
+    create_oauth_error_response,
+    extract_client_platform,
+    parse_and_log_mcp_analytics,
+    cors_headers,
+)
+from av_mcp.oauth import (
+    handle_metadata_discovery,
+    handle_protected_resource_metadata,
+    handle_authorization_request,
+    handle_token_request,
+    handle_registration_request,
+)
+from av_mcp.tokens import decode_access_token, TokenConfigError
+
+
+# Public, no-auth static pages bundled inside the package (todo 2600). The MCP server
+# serves its own landing page (/) so it no longer depends on the CloudFront/S3 static
+# site. Maps request path -> packaged file name.
+STATIC_PAGES = {"/": "index.html"}
+
+
+@lru_cache(maxsize=None)
+def _read_static_page(filename: str) -> str:
+    """Read a bundled static HTML page from av_mcp/static (cached across warm invocations)."""
+    return files("av_mcp").joinpath("static", filename).read_text(encoding="utf-8")
+
+
+def serve_static_page(path: str) -> dict:
+    """Return a bundled static HTML page as a 200 text/html response (public, no auth)."""
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "text/html; charset=utf-8"},
+        "body": _read_static_page(STATIC_PAGES[path]),
+    }
+
+
+def oauth_misconfig_response() -> dict:
+    """500 for unset OAuth signing/encryption keys (server misconfig, not an auth failure)."""
+    logger.error(
+        "OAuth signing/encryption keys not configured "
+        "(JWT_SECRET_KEY / AV_APIKEY_ENC_KEY)"
+    )
+    return {
+        "statusCode": 500,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(
+            {
+                "error": "server_error",
+                "error_description": "OAuth is not configured on this server",
+            }
+        ),
+    }
+
+
+def _meta_tool_structured(tool_name: str, arguments: dict, content: list) -> dict | None:
+    """Build a meta-tool call's structuredContent (matching its declared META_TOOL_OUTPUT_SCHEMA).
+
+    TOOL_LIST/TOOL_GET re-read the in-process tool registry (pure, no network) instead of
+    parsing the response text, because the awslabs handler serializes non-str/bytes results
+    with ``str(result)`` (Python repr, not JSON) — their raw list/dict results can't be
+    reliably round-tripped through the text content. TOOL_CALL reuses the already-computed
+    text content (which reflects large-response processing) instead of re-running the
+    proxied data tool.
+    """
+    if tool_name == "TOOL_LIST":
+        return build_meta_tool_structured_content(tool_name, get_tool_list())
+    if tool_name == "TOOL_GET":
+        tn = arguments.get("tool_name")
+        if not tn:
+            return None
+        raw = get_tool_schemas(tn) if isinstance(tn, list) else get_tool_schema(tn)
+        return build_meta_tool_structured_content(tool_name, raw)
+    # TOOL_CALL: derive from the returned text content.
+    text = next(
+        (c.get("text") for c in content if isinstance(c, dict) and c.get("type") == "text"),
+        None,
+    )
+    if text is None:
+        return None
+    return build_meta_tool_structured_content(tool_name, text)
+
+
+def add_data_tool_structured_content(parsed_request: dict, response: dict) -> None:
+    """Inject structuredContent into a tools/call response (in place).
+
+    The awslabs handler only emits `content`, but every tool (data tool or legacy
+    meta-tool) declares an outputSchema, and MCP requires structuredContent whenever
+    outputSchema is declared. Error results are skipped (validation is not applied to
+    isError responses).
+
+    Meta-tools (TOOL_LIST/TOOL_GET/TOOL_CALL) declare their own, more specific
+    outputSchema (META_TOOL_OUTPUT_SCHEMA) and get their structuredContent via
+    _meta_tool_structured(); every other tool falls back to the generic
+    DATA_TOOL_OUTPUT_SCHEMA shape, built from the already-returned text content (which
+    reflects large-response processing) — never re-running the tool.
+    """
+    if not isinstance(parsed_request, dict) or parsed_request.get("method") != "tools/call":
+        return
+    params = parsed_request.get("params") or {}
+    tool_name = params.get("name")
+    try:
+        resp_body = json.loads(response["body"])
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return
+    result = resp_body.get("result")
+    if (
+        not isinstance(result, dict)
+        or "content" not in result
+        or "structuredContent" in result
+        or result.get("isError")
+    ):
+        return
+    if tool_name in META_TOOL_OUTPUT_SCHEMA:
+        structured = _meta_tool_structured(tool_name, params.get("arguments") or {}, result["content"])
+        if structured is None:
+            return
+        result["structuredContent"] = structured
+        response["body"] = json.dumps(resp_body)
+        return
+    text = next(
+        (
+            c.get("text")
+            for c in result["content"]
+            if isinstance(c, dict) and c.get("type") == "text"
+        ),
+        None,
+    )
+    if text is None:
+        return
+    result["structuredContent"] = build_data_structured_content(text)
+    response["body"] = json.dumps(resp_body)
+
+
+def normalize_content_type_header(event):
+    """Normalize Content-Type so awslabs handler accepts media-type parameters."""
+    headers = event.get("headers")
+    if not isinstance(headers, dict):
+        return
+
+    for key, value in list(headers.items()):
+        if key.lower() != "content-type" or not isinstance(value, str):
+            continue
+
+        content_type = value.split(";", 1)[0].strip().lower()
+        headers[key] = content_type
+        headers["content-type"] = content_type
+        return
+
+
+def create_mcp_handler() -> ToolCallMCPLambdaHandler:
+    """Create and configure MCP handler with the full Alpha Vantage tool catalog."""
+    mcp = ToolCallMCPLambdaHandler(name="alphavantage-mcp-server", version="1.0.0")
+
+    # Set up custom tool decorator for UPPER_SNAKE_CASE tool names
+    setup_custom_tool_decorator(mcp)
+
+    # Register the full catalog of real Alpha Vantage tools directly, plus the legacy
+    # TOOL_LIST/TOOL_GET/TOOL_CALL meta-tools alongside them for backward compatibility
+    # with historical clients that still have the meta-tools cached (todo 2764).
+    register_all_tools(mcp)
+    register_meta_tools(mcp)
+    logger.info(f"Registered {len(mcp.tools)} Alpha Vantage tools")
+
+    return mcp
+
+
+# Build the handler ONCE at import (Lambda cold start / process boot) and reuse it for
+# every request. The tool catalog is immutable per-process and the tools are stateless:
+# the caller's api key is resolved per-request into a thread-local contextvar (set_api_key),
+# not stored on the handler. MCPLambdaHandler.handle_request holds no per-request mutable
+# state on the instance — request data lives in locals + the thread-isolated
+# current_session_id ContextVar, and the session store is NoOpSessionStore — so the single
+# instance is safe to share across the docker ThreadingHTTPServer's request threads.
+# Lambda-safety: this is just an in-memory catalog object with NO live sockets, so there is
+# no freeze/thaw issue (unlike a pooled httpx.Client, which is correctly kept per-request).
+# Rebuilding the ~126-tool catalog on every request was the docker container's true-concurrency
+# bottleneck (CPU/GIL-bound), so it is done exactly once here.
+_mcp_handler = create_mcp_handler()
+
+
+def _merge_cors_headers(response):
+    """Add CORS headers to a Lambda response without clobbering stricter existing values.
+
+    setdefault semantics: a handler that already set a header (e.g. Access-Control-Allow-Origin
+    on the metadata endpoints) keeps its value; everything else gets the central cors_headers().
+    """
+    if not isinstance(response, dict):
+        return response
+    headers = response.get("headers")
+    if not isinstance(headers, dict):
+        headers = {}
+        response["headers"] = headers
+    for key, value in cors_headers().items():
+        headers.setdefault(key, value)
+    return response
+
+
+def lambda_handler(event, context):
+    """AWS Lambda entry point: CORS preflight short-circuit + central CORS merge."""
+    method = event.get("httpMethod", "UNKNOWN")
+    path = event.get("path", "/")
+
+    # Log only the request line. Do NOT log Headers (Authorization: Bearer ...),
+    # Query parameters (?apikey=...), or Body — they carry credentials that must
+    # never reach CloudWatch (Software Directory Policy 1.C/1.D).
+    logger.info(f"Incoming request: {method} {path}")
+
+    # CORS preflight: short-circuit OPTIONS for ANY path before auth/routing (todo 2583).
+    # Covers /.well-known/*, /token, /register, /authorize, and /mcp in one place.
+    if method == "OPTIONS":
+        return {"statusCode": 204, "headers": cors_headers(), "body": ""}
+
+    return _merge_cors_headers(_handle_request(event, context))
+
+
+def _handle_request(event, context):
+    """Resolve the caller's credential and dispatch (OAuth endpoints, MCP, errors)."""
+    method = event.get("httpMethod", "UNKNOWN")
+    path = event.get("path", "/")
+    body = event.get("body", "")
+
+    # Public static pages (before token validation): the landing page is public, so serve
+    # it without a credential. Only intercept GET on exactly /; every other path keeps its
+    # current behavior (todo 2600).
+    if method == "GET" and path in STATIC_PAGES:
+        return serve_static_page(path)
+
+    # Handle OAuth 2.1 endpoints first (before token validation). The token-minting endpoints
+    # (/authorize POST, /token) require the OAuth keys; surface unset keys as a clean 500.
+    # Protected Resource Metadata: RFC 9728 inserts the resource path after the
+    # well-known segment, so for the `/mcp` resource the canonical location is
+    # `/.well-known/oauth-protected-resource/mcp`. Serve both the path-aware
+    # form (spec-correct) and the bare form (backwards-compatible) so clients
+    # and proxies resolve metadata regardless of which they request.
+    protected_resource_paths = (
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+    )
+    if path in (
+        "/.well-known/oauth-authorization-server",
+        *protected_resource_paths,
+        "/authorize",
+        "/token",
+        "/register",
+    ):
+        try:
+            if path == "/.well-known/oauth-authorization-server":
+                return handle_metadata_discovery(event)
+            elif path in protected_resource_paths:
+                return handle_protected_resource_metadata(event)
+            elif path == "/authorize":
+                return handle_authorization_request(event)
+            elif path == "/token":
+                return handle_token_request(event)
+            else:
+                return handle_registration_request(event)
+        except TokenConfigError:
+            return oauth_misconfig_response()
+
+    # Resolve the caller's credential (todo 3240). An explicit raw apikey (body > query >
+    # apikey/X-API-Key header > non-JWT-shaped Authorization value) wins over an OAuth Bearer
+    # token: the raw key is the most recent credential the caller configured, while a cached
+    # OAuth token embeds the apikey captured at consent time and would otherwise pin a stale
+    # key across reconnects. A JWT-shaped Authorization value is still validated as an OAuth
+    # access token by jwt.decode (signature + exp) + Fernet decrypt of the apikey claim;
+    # failed JWT validation never falls back to raw-key handling.
+    raw_key, bearer = resolve_credential(event)
+
+    if raw_key:
+        api_key = raw_key
+    elif bearer:
+        # Reject malformed/expired/tampered access tokens with 401 (T4). Unset keys -> 500.
+        try:
+            api_key = decode_access_token(bearer)
+        except TokenConfigError:
+            return oauth_misconfig_response()
+        if not api_key:
+            return create_oauth_error_response(
+                {
+                    "error": "invalid_token",
+                    "error_description": "The access token is invalid or expired",
+                    "error_uri": "https://tools.ietf.org/html/rfc6750#section-3.1",
+                },
+                401,
+            )
+    else:
+        return create_oauth_error_response(
+            {
+                "error": "invalid_request",
+                "error_description": "Missing access token",
+                "error_uri": "https://tools.ietf.org/html/rfc6750#section-3.1",
+            },
+            401,
+        )
+
+    # Set the resolved apikey in context for tools to access
+    set_api_key(api_key)
+
+    # GET /mcp is used by MCP clients to open an SSE stream for server notifications.
+    # Lambda doesn't support SSE, so return 405 to stop clients from retrying.
+    # NOTE: Do NOT return 204 here — clients treat it as a successful SSE connection
+    # and will retry endlessly, causing massive request volume.
+    if method == "GET":
+        return {
+            "statusCode": 405,
+            "headers": {"Allow": "POST"},
+            "body": json.dumps(
+                {"error": "SSE not supported, use POST for MCP requests"}
+            ),
+        }
+
+    # Parse and log MCP method and params for analytics (after token parsing)
+    if method == "POST":
+        # Extract client platform information
+        platform = extract_client_platform(event)
+
+        # Log MCP analytics
+        parse_and_log_mcp_analytics(body, api_key, platform)
+
+    # Handle MCP requests
+    normalize_content_type_header(event)
+    response = _mcp_handler.handle_request(event, context)
+
+    # Post-process the response:
+    # - initialize: drop the resources capability (MCPLambdaHandler hardcodes it, we only
+    #   provide tools).
+    # - tools/call: add structuredContent (the awslabs handler emits only `content`, but
+    #   every data tool declares an outputSchema).
+    if method == "POST" and body:
+        try:
+            parsed = json.loads(body) if isinstance(body, str) else body
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            if parsed.get("method") == "initialize":
+                try:
+                    resp_body = json.loads(response["body"])
+                    resp_body.get("result", {}).get("capabilities", {}).pop(
+                        "resources", None
+                    )
+                    response["body"] = json.dumps(resp_body)
+                except (json.JSONDecodeError, TypeError, KeyError):
+                    pass
+            elif parsed.get("method") == "tools/call":
+                add_data_tool_structured_content(parsed, response)
+
+    return response

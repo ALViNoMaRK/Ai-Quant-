@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha Vantage MCP - Authorization</title>
+    <link rel="icon" type="image/png" href="https://cdn.alphavantage.co/logo.png">
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'theme': 'rgb(45, 45, 45)',
+                        'av-green': '#42DCA3',
+                        'av-dark': '#1f1f1f'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-theme min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="w-full py-4 px-8">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <a href="https://www.alphavantage.co/" class="text-white text-xl font-bold tracking-wider hover:text-av-green transition-colors">ALPHA VANTAGE</a>
+        </div>
+    </header>
+
+    <main class="flex-1 flex flex-col items-center justify-center px-4">
+        <div class="max-w-lg w-full">
+            <!-- Logo Section -->
+            <div class="text-center mb-8">
+                <img src="https://cdn.alphavantage.co/logo.png" alt="Alpha Vantage Logo" class="mx-auto h-12 mb-6">
+                <h1 class="text-2xl font-light text-white mb-2">Authorization Required</h1>
+            </div>
+            
+            <!-- Main Container -->
+            <div class="bg-theme rounded-lg p-8 border border-av-green/30">
+                
+                <!-- Error Box (conditionally shown) -->
+                <div id="error-box" class="bg-red-900/30 border border-red-500/50 rounded-lg p-4 mb-6 hidden">
+                    <div class="text-red-400 text-sm">
+                        <strong>Error:</strong> <span id="error-message"></span>
+                    </div>
+                </div>
+                
+                <!-- Info Box -->
+                <div class="bg-theme border border-av-green/30 rounded-lg p-4 mb-6">
+                    <div class="text-gray-300 text-sm">
+                        <strong>Client requesting access:</strong> <span id="client-id"></span><br>
+                        <strong>Permissions:</strong> Read access to Alpha Vantage financial data
+                    </div>
+                </div>
+                
+                <!-- Authorization Form -->
+                <form method="POST" action="/authorize">
+                    <div class="mb-6">
+                        <div class="flex justify-between items-center mb-3">
+                            <label for="api_key" class="block text-sm font-medium text-white">
+                                Alpha Vantage API Key
+                            </label>
+                            <div class="text-sm text-gray-400">
+                                Don't have an API key? <a href="https://www.alphavantage.co/support/#api-key" target="_blank" class="text-av-green hover:underline">Get one free</a>
+                            </div>
+                        </div>
+                        <input
+                            type="password"
+                            id="api_key"
+                            name="api_key"
+                            required
+                            placeholder="Enter your Alpha Vantage API key"
+                            class="w-full px-4 py-3 bg-av-dark border-2 border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-av-green transition-colors"
+                        >
+                    </div>
+                    
+                    <button 
+                        type="submit" 
+                        class="w-full bg-av-green text-av-dark py-3 px-6 rounded-lg font-semibold hover:bg-av-green/90 transition-colors focus:outline-none focus:ring-2 focus:ring-av-green focus:ring-offset-2 focus:ring-offset-theme"
+                    >
+                        Authorize Access
+                    </button>
+                </form>
+            </div>
+        </div>
+    </main>
+    
+    <script>
+        // Extract URL parameters and populate client ID
+        const urlParams = new URLSearchParams(window.location.search);
+        const clientId = urlParams.get('client_id') || 'Unknown Client';
+        document.getElementById('client-id').textContent = clientId;
+    </script>
+</body>
+</html>

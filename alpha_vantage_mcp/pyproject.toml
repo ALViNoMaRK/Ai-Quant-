@@ -1,0 +1,6 @@
+[tool.uv.workspace]
+members = ["api", "mcp", "cli", "examples/agent"]
+
+[tool.uv]
+dev-dependencies = []
+

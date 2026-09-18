@@ -1,0 +1,45 @@
+# GitHub Actions config secrets
+.github/config-*.json
+
+# Editor / IDE
+.gemini
+.vscode
+
+# OS
+*.DS_Store
+
+# Environment
+.venv
+.env
+.env.bak
+.env*
+
+# Generated env files (derived from .github/config-*.json)
+env/
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# AWS SAM build artifacts
+.aws-sam/
+
+# Dev docs
+dev_docs
+
+# Generated / local files
+requirements.txt
+sessions.db
+mcp.json
+
+# Landing page generated from README.md by mcp/build_static_pages.py (CI regenerates before sam build)
+mcp/src/av_mcp/static/index.html
+
+# Tests are kept local-only
+analytics/tests/
+ingest/tests/
+mcp/tests/
